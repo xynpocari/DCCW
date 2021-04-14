@@ -194,7 +194,8 @@ GOES16_rast # Dont let the NAs scare you! These are accurate.
 FRP_subset <- GOES16_rast %>% raster::subset(c("X2019.05.26.21.20.MDT","X2019.05.26.21.30.MDT",
                                                "X2019.05.26.21.40.MDT","X2019.05.26.21.50.MDT", 
                                                "X2019.05.26.22.00.MDT", "X2019.05.26.22.10.MDT",
-                                               "X2019.05.26.22.20.MDT", "X2019.05.26.22.30.MDT",                                                              "X2019.05.26.22.40.MDT"))
+                                               "X2019.05.26.22.20.MDT", "X2019.05.26.22.30.MDT",
+                                               "X2019.05.26.22.40.MDT"))
 tm_shape(McMillan_simple) + tm_borders() +
   tm_shape(FRP_subset) + tm_raster(title = 'GOES 16 FRP') +
   tm_facets(ncol = 3)
