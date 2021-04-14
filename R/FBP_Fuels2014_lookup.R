@@ -1,13 +1,3 @@
-# ----------------------------------------------------
-
-# Project title: Fire Progression Reanalysis
-# Organization: NRCAN, Northern Forestry Centre, Edmonton AB
-# Author: Xue Yan Chan, xueyan.chan@canada.ca
-# Supervised by: Piyush Jain and Dan Thompson
-# Last updated: 2021-04-08
-
-# ----------------------------------------------------
-
 #' Look-up FBP Fuels 2014 Values and RGB colours.
 #'
 #' See FBP Fuels 2014 raster values, associated fuel types, and standard RGB colour codes.

@@ -1,15 +1,3 @@
-# ----------------------------------------------------
-
-# Project title: Fire Progression Reanalysis
-# Organization: NRCAN, Northern Forestry Centre, Edmonton AB
-# Author: Xue Yan Chan, xueyan.chan@canada.ca
-# Supervised by: Piyush Jain and Dan Thompson
-# Last updated: 2021-04-08
-
-# The following is a collection of functions used to grab static rasters based on either a reference polygon or raster.
-
-# ----------------------------------------------------
-
 #' Hotspot IDW interpolation
 #'
 #' Estimate daily area of burn using IDW interpolation of hotspots epoch.

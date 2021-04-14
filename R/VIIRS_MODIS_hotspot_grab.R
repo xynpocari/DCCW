@@ -1,13 +1,3 @@
-# ----------------------------------------------------
-
-# Project title: Fire Progression Reanalysis
-# Organization: NRCAN, Northern Forestry Centre, Edmonton AB
-# Author: Xue Yan Chan, xueyan.chan@canada.ca
-# Supervised by: Piyush Jain and Dan Thompson
-# Last updated: 2021-04-08
-
-# ----------------------------------------------------
-
 #' Grab VIIRS hotspots
 #'
 #' Import and/or download the archived VIIRS S-NPP 375m hotspots from the FIRMS database within a user-defined date range and spatial extent.

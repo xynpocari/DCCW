@@ -1,15 +1,3 @@
-# ----------------------------------------------------
-
-# Project title: Fire Progression Reanalysis
-# Organization: NRCAN, Northern Forestry Centre, Edmonton AB
-# Author: Xue Yan Chan, xueyan.chan@canada.ca
-# Supervised by: Piyush Jain and Dan Thompson
-# Last updated: 2021-04-08
-
-# This is a small collection of helper functions.
-
-# ----------------------------------------------------
-
 #' Split intervals into 1-hour intervals
 #'
 #' Split lubridate interval objects into 1-hour intervals.

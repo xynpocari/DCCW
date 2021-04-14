@@ -1,15 +1,3 @@
-# ----------------------------------------------------
-
-# Project title: Fire Progression Reanalysis
-# Organization: NRCAN, Northern Forestry Centre, Edmonton AB
-# Author: Xue Yan Chan, xueyan.chan@canada.ca
-# Supervised by: Piyush Jain and Dan Thompson
-# Last updated: 2021-04-08
-
-# The following is a collection of functions used to grab static rasters based on either a reference polygon or raster.
-
-# ----------------------------------------------------
-
 #' Grab 2014 FBP fuels grid
 #'
 #' Extracts a spatial subset of the 2014 FBP fuels map to a user defined extent.
@@ -33,7 +21,7 @@
 #' @return A RasterLayer with the name 'FBP_fuels_2014'.
 #' @export
 #'
-#' @references Open Data Canada: \url{https://cwfis.cfs.nrcan.gc.ca/downloads/fuels/current/}
+#' @references FBP Fuels 2014b: \url{https://cwfis.cfs.nrcan.gc.ca/downloads/fuels/current/}
 #'
 #' @import raster
 #' @import sf
@@ -124,7 +112,7 @@ fbp_fuel_grab <- function(reference_grid,
 #' @return RasterLayer with the name 'Ecozone'.
 #' @export
 #'
-#' @references Open Data Canada: \url{https://open.canada.ca/data/en/dataset/7ad7ea01-eb23-4824-bccc-66adb7c5bdf8}
+#' @references Terrestrial Ecozones of Canada: \url{https://open.canada.ca/data/en/dataset/7ad7ea01-eb23-4824-bccc-66adb7c5bdf8}
 #'
 #' @import raster
 #' @import sf
@@ -195,7 +183,7 @@ ecozone_grab <- function(reference_grid){
 #' @return RasterLayer with the name 'Canopy_closure'.
 #' @export
 #'
-#' @references Open Data Canada: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
+#' @references 2011 Canada's Forest Attributes: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
 #'
 #' @import raster
 #' @import sf
@@ -297,7 +285,7 @@ canopy_closure_grab <- function(reference_grid,
 #' @return RasterLayer with the name 'Stand_height'.
 #' @export
 #'
-#' @references Open Data Canada: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
+#' @references 2011 Canada's Forest Attributes: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
 #'
 #' @import raster
 #' @import sf
@@ -407,7 +395,7 @@ stand_height_grab <- function(reference_grid,
 #' @return RasterLayer with the name 'Broadleaf_percentage'.
 #' @export
 #'
-#' @references Open Data Canada: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
+#' @references 2011 Canada's Forest Attributes: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
 #'
 #' @import raster
 #' @import sf
@@ -513,7 +501,7 @@ broadleaf_grab <- function(reference_grid,
 #' @return RasterLayer with the name 'Needleleaf_percentage'.
 #' @export
 #'
-#' @references Open Data Canada: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
+#' @references 2011 Canada's Forest Attributes: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
 #'
 #' @import raster
 #' @import sf
@@ -615,7 +603,7 @@ needleleaf_grab <- function(reference_grid,
 #' @return RasterLayer with the name 'Branch_biomass'.
 #' @export
 #'
-#' @references Open Data Canada: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
+#' @references 2011 Canada's Forest Attributes: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
 #'
 #' @import raster
 #' @import sf
@@ -718,7 +706,7 @@ branch_biomass_grab <- function(reference_grid,
 #' @return RasterLayer with the name 'Foliage_biomass'.
 #' @export
 #'
-#' @references Open Data Canada: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
+#' @references 2011 Canada's Forest Attributes: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
 #'
 #' @import raster
 #' @import sf

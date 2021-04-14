@@ -1,13 +1,3 @@
-# ----------------------------------------------------
-
-# Project title: Fire Progression Reanalysis
-# Organization: NRCAN, Northern Forestry Centre, Edmonton AB
-# Author: Xue Yan Chan, xueyan.chan@canada.ca
-# Supervised by: Piyush Jain and Dan Thompson
-# Last updated: 2021-04-08
-
-# ----------------------------------------------------
-
 #' ERA5-Land hourly Variable List
 #'
 #' See a list of ERA5-Land hourly variables that can be pulled from Google Earth Engine.

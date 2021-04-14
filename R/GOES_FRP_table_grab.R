@@ -1,13 +1,3 @@
-# ----------------------------------------------------
-
-# Project title: Fire Progression Reanalysis
-# Organization: NRCAN, Northern Forestry Centre, Edmonton AB
-# Author: Xue Yan Chan, xueyan.chan@canada.ca
-# Supervised by: Piyush Jain and Dan Thompson
-# Last updated: 2021-04-08
-
-# ----------------------------------------------------
-
 #' Grab GOES-16 and GOES-17 FRP tables from Google Earth Engine
 #'
 #' Extract GOES-16 or GOES-17 FDCF Series ABI Level 2 FRP tables using Google Earth Engine from the R environment (via package rgee).

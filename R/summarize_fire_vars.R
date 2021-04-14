@@ -1,13 +1,3 @@
-# ----------------------------------------------------
-
-# Project title: Fire Progression Reanalysis
-# Organization: NRCAN, Northern Forestry Centre, Edmonton AB
-# Author: Xue Yan Chan, xueyan.chan@canada.ca
-# Supervised by: Piyush Jain and Dan Thompson
-# Last updated: 2021-04-08
-
-# ----------------------------------------------------
-
 #' Summarize daily fire variables
 #'
 #' Summarize daily fire variables, such as hotspot counts, FRP, and FWI metrics on a daily timeframe based on estimated area burned.

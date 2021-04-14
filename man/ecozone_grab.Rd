@@ -32,5 +32,5 @@ plot(ecozones)
 }
 }
 \references{
-Open Data Canada: \url{https://open.canada.ca/data/en/dataset/7ad7ea01-eb23-4824-bccc-66adb7c5bdf8}
+Terrestrial Ecozones of Canada: \url{https://open.canada.ca/data/en/dataset/7ad7ea01-eb23-4824-bccc-66adb7c5bdf8}
 }

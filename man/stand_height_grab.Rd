@@ -56,5 +56,5 @@ plot(r)
 }
 }
 \references{
-Open Data Canada: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
+2011 Canada's Forest Attributes: \url{https://open.canada.ca/data/en/dataset/ec9e2659-1c29-4ddb-87a2-6aced147a990}
 }

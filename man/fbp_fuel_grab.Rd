@@ -52,5 +52,5 @@ plot(fbp_fuel)
 }
 }
 \references{
-Open Data Canada: \url{https://cwfis.cfs.nrcan.gc.ca/downloads/fuels/current/}
+FBP Fuels 2014b: \url{https://cwfis.cfs.nrcan.gc.ca/downloads/fuels/current/}
 }
