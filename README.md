@@ -15,14 +15,54 @@ library(remotes)
 install_github('xynpocari/DCCW')
 ```
 
-NOTE: This package requires that users have a Google Earth Engine Account and access to the R package rgee.
+NOTE: This package requires that users have a Google Earth Engine account and access to the R package rgee.
+To get a Google Earth Engine account, sign up [here](https://earthengine.google.com/).
+
 If you already have rgee, you can skip these installation steps.
 
-You can install rgee with: 
+You can install [rgee](https://github.com/r-spatial/rgee) with: 
 
 ``` r
 install.packages("rgee")
-rgee::ee_install() # Recommended for users with no Python experience
+
+```
+
+Additionally, rgee depends on the Python packages: numpy and ee. To install them, users can follow any of these three methods: 
+
+1. use ee_install (Highly recommend for users with no experience with Python environments)
+
+```r
+rgee::ee_install()
+```
+2. Use ee_install_set_pyenv (Recommend for users with experience with Python environments)
+
+```r
+rgee::ee_install_set_pyenv(
+  py_path = "/home/csaybar/.virtualenvs/rgee/bin/python", # Change it for your own Python PATH
+  py_env = "rgee" # Change it for your own Python ENV
+)
+
+```
+Take into account that the Python PATH you set must have installed the Earth Engine Python API and numpy. The use of miniconda/anaconda is mandatory for Windows users, Linux and MacOS users could also use virtualenv.
+
+Other option, only possible for MacOS and Linux, is just set the Python PATH:
+
+```r
+rgee::ee_install_set_pyenv(
+  py_path = "/usr/bin/python3", 
+  py_env = NULL
+)
+
+```
+However, rgee::ee_install_upgrade and reticulate::py_install will not work until you set a Python ENV.
+
+3. Use the Python PATH setting support that offer Rstudio v.1.4 >. See this [tutorial](https://github.com/r-spatial/rgee/tree/help/rstudio/).
+
+After install `Python dependencies` (and Restart R!!), you might use the function below for checking the status of rgee.
+
+```r
+ee_check() # Check non-R dependencies
+
 ```
 
 See details on rgee installation here: [rgee](https://github.com/r-spatial/rgee)
@@ -106,7 +146,7 @@ We are almost finished setting up. We will now define the spatial and temporal e
 # to the spatial extent of the buffered poly.
 buff_width <- 2000 # 2 km
 
-# weather_buff_width: it makes sense to extract weather variables to
+# weather_buff_width: we would like to extract weather variables to
 # a greater spatial extent surrounding the fire. Here we choose 40 km
 weather_buff_width <- 40000 # 40 km
 
@@ -121,13 +161,13 @@ Finally, let's define an output directory to save exported data, and a filename 
 
 ``` r
 # Define the location of an output directory on your local device:
-output_directory <- 'C:\\Users\\YOUR_NAME\\Documents\\DCCW'
+output_directory <- 'C:\\Users\\YOUR_NAME\\Documents'
 filename_prefix <- 'SWF0492019' # using CFS REF ID for clarity here
 
 ```
 ### 2. Data extraction: fire detection vector data
 
-We'll start our data extraction phase by pulling VIIRS hotspots S-NPP using `VIIRS_hotspots_grab()`, and pulling MODIS Collection 6 hotspots using `MODIS_hotspots_grab()`. This function downloads archives hotspots from the [FIRMS](https://firms.modaps.eosdis.nasa.gov/download/) database. 
+We'll start our data extraction by pulling VIIRS S-NPP hotspots using `VIIRS_hotspots_grab()`, and pulling MODIS Collection 6 hotspots using `MODIS_hotspots_grab()`. This function downloads archived hotspots from the [FIRMS](https://firms.modaps.eosdis.nasa.gov/download/) database. 
 
 The hotspots will be pulled within the boundary of the buffered `reference_poly`, and only hotspots detected between the user-defined `start_date` and `end_date` will be returned. 
 
@@ -158,16 +198,18 @@ head(modis)
 Let's plot the hotspots over our fire polygon. Notice the density difference, and recall that the VIIRS resolution is 375 m, whereas MODIS is 1 km. 
 
 ``` r
-# Plot VIIRS
-tm_shape(McMillan_simple) + tm_polygons() +
-  tm_shape(viirs) + tm_dots(col = 'darkred') +
-  tm_layout(frame = F, title = 'VIIRS S-NPP \nHotspots')
+# VIIRS
+viirs_map <- tm_shape(McMillan_simple) + tm_polygons() +
+             tm_shape(viirs) + tm_dots(col = 'darkred') +
+             tm_layout(frame = F, title = 'VIIRS S-NPP \nHotspots')
 
-# Plot MODIS
-tm_shape(McMillan_simple) + tm_polygons() +
-  tm_shape(modis) + tm_dots(col = 'darkred') +
-  tm_layout(frame = F, title = 'MODIS\n Col. 6 Hotspots')
+# MODIS
+modis_map <- tm_shape(McMillan_simple) + tm_polygons() +
+             tm_shape(modis) + tm_dots(col = 'darkred') +
+             tm_layout(frame = F, title = 'MODIS\n Col. 6 Hotspots')
 
+# Plot maps side by side 
+tmap_arrange(viirs_map, modis_map)
 
 ```
 ### 3. Data extraction: fire detection raster data
