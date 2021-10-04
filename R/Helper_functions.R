@@ -208,15 +208,182 @@ simplify_NBAC <- function(original_NBAC){
 
   # extract the CNFDB name and alias for fire, if this information exists
   if(original_NBAC$COMMENTS[1] != 'Null'){
-    CFS_REF_ID <- stringr::word(original_NBAC[1,]$COMMENTS, 1, sep = fixed('[')) # CNFDB name
+   # CFS_REF_ID <- stringr::word(original_NBAC[1,]$COMMENTS, 1, sep = fixed('[')) # CNFDB name
     common_name <- str_match(original_NBAC[1,]$COMMENTS, 'alias:\\s*(.*?)\\s*,')[,2] # alias
-    incident_info <- incident_info %>% add_column(CFS_REF = CFS_REF_ID, # append CNFDB name
+    incident_info <- incident_info %>% add_column(
+                                                 #CFS_REF_ID = CFS_REF_ID, # append CNFDB name
                                                   NAME = common_name, # append alias
                                                   .before = 1)
   }
 
   # simplify fire polygon to make further processing quicker
-  nbac_tmp <- ms_simplify(original_NBAC) %>% st_union() %>% st_sf()
+  nbac_tmp <- ms_simplify(original_NBAC)
+  nbac_tmp <- nbac_tmp %>% st_buffer(dist = 0) %>% st_union() %>% st_sf()
+
   nbac_tmp <- nbac_tmp %>% add_column(incident_info, .before = 1) # append incident info
   return(nbac_tmp)
 }
+
+# --------------------------------------------------------
+
+#' Round numbers up/down to any interval
+#'
+#' Round numbers up/down to user defined interval.
+#' @param x Numeric. Value to be rounded up or down to specified interval.
+#' @param y Numeric. Interval used to round \code{x}. Positive \code{y} values denote rounding up, whereas negative values denote rounding down.
+#'
+#' @details For example, using \code{y = 5} will round \code{x} up to the nearest multiple of 5, whereas using \code{y = -5} will round \code{x} down to the nearest multiple of 5.
+#'
+#' @return Numeric; rounded value of \code{x}.
+#' @export
+#'
+#' @examples
+#' \dontrun{
+#' round_choose(27.8, 2) # round UP to the nearest 2
+#' round_choose(27.8, -2) # round DOWN to the nearest 2
+#' round_choose(38497, 10) # round UP to the nearest 10
+#' round_choose(38497, -10) # round DOWN to the nearest 10
+
+#' }
+round_choose <- function(x,y) {
+  if(y >= 0) { x + (y - x %% y)}
+  else { x - (x %% abs(y))}
+}
+
+# --------------------------------------------------------
+
+#' Get CFS REF ID
+#'
+#' Get CFS REF ID of NBAC fire perimeters.
+#'
+#' @param NBAC An sp or sf NBAC polygon of one fire event.
+#'
+#' @details
+#' In order to extract the CFS REF ID of NBAC fire perimeters, this function downloads the CNFDB fire point data to a tempfile,
+#' then subsets the CNFDB points temporally and spatially to parameters defined within the input \code{NBAC}.
+#' The CFS REF ID of the CNFDB point with the largest area is then returned.
+#'
+#' Users should be cautious when using output from this function; it is simply a guess at what the CFS REF ID for a certain NBAC fire should be.
+#' Other sources should be checked to validate the CFS REF ID output from this function.
+#'
+#'
+#' @return sf points
+#' @export
+#'
+#' @import sf
+#' @import dplyr
+#' @import tibble
+get_CFS_ID <- function(NBAC){ # nbac of 1 fire event with orig field attributes
+
+  # check NBAC class
+  if( grepl('sf', class(NBAC)[1]) ){ NBAC <- NBAC }
+  if( grepl("character", class(NBAC)[1]) ){ NBAC <- st_read(NBAC) }
+  if( grepl("SpatialPolygons|SpatialPolygonsDataFrame", class(NBAC)[1]) ){ NBAC <- st_as_sf(NBAC) }
+  if( !grepl("sf|character|SpatialPolygons|SpatialPolygonsDataFrame", class(NBAC)[1]) ){ message("NBAC must be the directory of a polygon or object of class sf, SpatialPolygons, or SpatialPolygonsDataFrame.") }
+
+  # download CNFDB textfile to tempfile
+  NFDB_temp <- tempfile(fileext = '.zip')
+
+  utils::download.file(destfile = NFDB_temp,
+                       url = 'https://cwfis.cfs.nrcan.gc.ca/downloads/nfdb/fire_pnt/current_version/NFDB_point_txt.zip')
+  NFDB_files <- utils::unzip(zipfile = NFDB_temp, list = T) # get file names
+  NFDB <- utils::unzip(zipfile = NFDB_temp, files = NFDB_files$Name[5], exdir = gsub('.zip','',NFDB_temp))
+  NFDB <- read.csv(NFDB) %>% as_tibble()
+
+  # subset by year
+  NFDB_subset <- NFDB %>% dplyr::filter(YEAR == NBAC$YEAR[1])
+
+  # coerce to sf points
+  NFDB_sf <- NFDB_subset %>%
+    st_as_sf(coords = c('LONGITUDE','LATITUDE'), crs = 4326) %>%
+    st_transform(crs = st_crs(NBAC))
+
+  # subset to within the fire perimeter
+  NFDB_fire <- NFDB_sf[NBAC,]
+
+  # take the biggest point (by area) and pull CFS REF ID
+  #NFDB_ID <- dplyr::slice_max(NFDB_fire, SIZE_HA) #%>% dplyr::pull(CFS_REF_ID)
+
+  # remove the tempfiles
+  unlink(list.files(path = tempdir(),
+                    pattern = gsub('.zip','',basename(NFDB_temp)), full.names = T), recursive = TRUE)
+
+  return(NFDB_fire)
+
+}
+
+# --------------------------------------------------------
+#' Import Canada timezones
+#'
+#' Import Canada timezones into R
+#'
+#' @param location A spatial object of class sf or sp. If provided, the intersecting timezones will be returned. If this parameter is not provided, timezone polygons for all of Canada are returned.
+#' @param crs Calls \code{st_transform()} to project the timezone polygons into a desired coordinate system. Valid inputs to the \code{crs} argument of \code{st_transform()} are allowed. Defaults to WGS84 (EPSG 4326).
+#'
+#'
+#' @details
+#' Downloads Canada timezones to a temporary file and imports the timezone polygons into the R environment.
+#' Timezones are taken from \url{https://github.com/evansiroky/timezone-boundary-builder}
+#'
+#' Additional attributes beyond the ones provided from \url{https://github.com/evansiroky/timezone-boundary-builder}
+#' are included in order to facilitate compability with the R packages lutz and lubridate.
+#' Often, local standard times (LST) for hotspots and weather observations are needed for wildfire applications. Both lutz and lubridate
+#' only recognize official Olson names (see \code{OlsonNames())}) as timezones (e.g. "America/Edmonton"). These timezones force daylight savings,
+#' even when standard times are desired.
+#'
+#' Accordingly, the following attributes are available from the sf object imported using \code{canada_timezones()}:
+#'
+#' \code{tzid}: The timezone ID as an Olson name. For example, "America/Edmonton".
+#' These names were pulled from \url{https://github.com/evansiroky/timezone-boundary-builder}
+#'
+#' \code{LST_offset}: The local standard time (LST) UTC offset that corresponds with the tzid.
+#' UTC offsets are positive east of UTC and negative west of UTC.
+#'
+#' \code{LDT_offset}: The local daylight time (LDT) UTC offset that corresponds with the tzid.
+#' If the timezone does not experience daylight savings, then this field is the same as the \code{LST_offset}.
+#' UTC offsets are positive east of UTC and negative west of UTC.
+#'
+#' \code{LST_tzid}: An Olson name timezone ID that corresponds with the LST_offset.
+#' For example, an LST_offset of "-07:00" would correspond to the timezone "Etc/GMT+7".
+#' The purpose of this is to allow for compatiability with the R packages lutz and lubridate, which only recognizes official Olson name timezones.
+#' Accordingly, offsets that do not have a corresponding Olson name are NA. This is the case for America/St_Johns (LST_offset = -03:30).
+#'
+#' \code{LDT_tzid}: An Olson name timezone ID that corresponds with the LDT_offset.
+#' For example, an LDT_offset of "-07:00" would correspond to the timezone "Etc/GMT+7".
+#' The purpose of this is to allow for compatiability with the R packages lutz and lubridate, which only recognizes official Olson name timezones.
+#' Accordingly, offsets that do not have a corresponding Olson name are NA. This is the case for America/St_Johns (LDT_offset = -02:30).
+#'
+#' If an area experiences daylight savings, then the user can instead use \code{LST_tzid} in the lubridate package to "force"
+#' the equivalent local standard time.
+#'
+#' @return sf polygons object
+#' @export
+#'
+#' @import sf
+#' @import curl
+
+get_canada_timezones <- function(location = NULL, crs = 4326){
+  output_file <- tempfile(fileext = '.zip')
+  curl_download(url = 'https://drive.google.com/uc?id=1jeEI9PDWTyfMVqU4xj4Wt3Dek0_GB4I8&export=download',
+                destfile = output_file )
+  # unzip
+  canada_zones <- utils::unzip(zipfile = output_file, exdir = gsub('.zip','',output_file))
+
+  # import to R as sf object
+  canada_zones_sf <- sf::st_read(canada_zones[6], quiet = TRUE)
+
+  # if given a location (spatial object), intersect and return parts that intersect
+  if(!is.null(location)){
+    canada_zones_sf <- suppressMessages(canada_zones_sf[st_transform(location, crs = 4326),])
+  }
+
+  # if given a crs, reproject
+  canada_zones_sf <- st_transform(canada_zones_sf, crs = crs)
+
+  # remove tempfiles
+  unlink(c(gsub(".zip","",output_file),list.files(tempdir(),pattern = ".zip",full.names = T)),recursive = T)
+
+  message('Returning Canada timezones as an sf object. Timezones last updated 2021-08-03.')
+  return(canada_zones_sf)
+}
+

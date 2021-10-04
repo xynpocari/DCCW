@@ -6,7 +6,8 @@
 #' @param NBAC sf polygon of the final NBAC fire perimeter. Likely the output of calling \code{simplify_NBAC()}.
 #' @param VIIRS_hotspots sf points of VIIRS hotspots. The output of calling \code{VIIRS_hotspots_grab()}.
 #' @param MODIS_hotspots sf points of MODIS hotspots. The output of calling \code{MODIS_hotspots_grab()}.
-#' @param GOES_table GOES FRP table. The output of calling \code{GOES_FRP_table(interval = 'Hourly')}.
+#' @param GOES16_hotspots sf points of GOES-16 hotspots. The output of calling \code{GOES_GEE_grab(satellite = 16)}.
+#' @param GOES17_hotspots sf points of GOES-17 hotspots. The output of calling \code{GOES_GEE_grab(satellite = 17)}.
 #' @param FWI_list List of FWI RasterBricks. The output of calling \code{FWI_ERA5_grab()}.
 #' @param variable_stack Named RasterBrick or RasterStack of topography and landcover rasters. See details.
 #' @param output_directory Optional. Output directory where a CSV should be saved.
@@ -34,21 +35,25 @@
 #' @import circular
 
 summarize_daily_fire_vars <- function(interim_stack,
-                                NBAC = NULL,
-                                VIIRS_hotspots = NULL,
-                                MODIS_hotspots = NULL,
-                                GOES_table = NULL,
-                                FWI_list = NULL,
-                                variable_stack = NULL,
-                                output_directory = NULL,
-                                filename_prefix = NULL){
+                                      NBAC = NULL,
+                                      VIIRS_hotspots = NULL,
+                                      MODIS_hotspots = NULL,
+                                      GOES16_hotspots = NULL,
+                                      GOES17_hotspots = NULL,
+                                      FWI_list = NULL,
+                                      variable_stack = NULL,
+                                      output_directory = NULL,
+                                      filename_prefix = NULL){
 
   # start creating the table based off the interim stack epochs
   # get timezone based on raster location
   rast_centroid <- interim_stack %>% st_bbox() %>% st_as_sfc() %>% st_centroid()
-  timezone <- tz_lookup(rast_centroid, method = 'accurate')
 
-  interim_dttm <- getZ(interim_stack) %>% as_datetime() %>% with_tz(tzone = timezone)
+  timezone_info <- suppressMessages(get_canada_timezones(rast_centroid)) %>% st_drop_geometry()
+  timezone <- timezone_info$LST_tzid
+  timezone_abbr <- timezone_info$LST_abbr
+
+  interim_dttm <- getZ(interim_stack) %>% as.vector() %>% as_datetime() %>% with_tz(tzone = timezone)
   summary_ints <- lubridate::interval(start = (interim_dttm-86400), end = interim_dttm)
 
   # create the summary table
@@ -83,10 +88,17 @@ summarize_daily_fire_vars <- function(interim_stack,
   }
 
   # add in nbac fire info if available
-  # hm not decided about this one yet. is it useful?
   if(!is.null(NBAC)){
     nbac_varnames <- c("CFS_REF", "NAME", "YEAR", "NFIREID", "AGENCY", "SDATE", "EDATE", "NBAC_HA")
     nbac_vars <- NBAC %>% dplyr::select(any_of(nbac_varnames)) %>% st_drop_geometry()
+
+    # if NBAC is a multipart polygon, check to see if there are differing outputs for
+    # any attributes. tends to be common for 'Agency'
+    if(nrow(NBAC) > 1){
+      unique_val_length <- apply(nbac_vars, 2, function(x) length(unique(x)))
+      not_identical <- which(unique_val_length > 1)
+      nbac_vars <- nbac_vars[,-not_identical][1,]
+    }
 
     summary_tbl <- summary_tbl %>% mutate(nbac_vars, .after = Interval_End)
   }
@@ -117,16 +129,33 @@ summarize_daily_fire_vars <- function(interim_stack,
     }
   }
 
-  if(!is.null(GOES_table)){
-    # if GOES FRP table is given, summarize it
-    summary_tbl <- summary_tbl %>% add_column(GOES16_SumFRP = as.numeric(NA),
+  if(!is.null(GOES16_hotspots)){
+    # if GOES 16 hotspots are given, summarize them
+    summary_tbl <- summary_tbl %>% add_column(GOES16_HotspotCount = as.integer(NA),
+                                              GOES16_SumFRP = as.numeric(NA))
+
+    for(i in 1:nrow(summary_tbl)){
+      int_hotspots <- GOES16_hotspots %>%
+        filter(lubridate::as_datetime(epoch) %within% summary_tbl$Interval[i] &
+                 !Mask %in% c(15,35)) # filter out maskvals 15 and 35 (low confidence fire)
+      summary_tbl$GOES16_HotspotCount[i] <- nrow(int_hotspots)
+      summary_tbl$GOES16_SumFRP[i] <- int_hotspots$Power %>% sum(na.rm = TRUE)
+      rm(int_hotspots)
+    }
+  }
+
+  if(!is.null(GOES17_hotspots)){
+    # if GOES 17 hotspots are given, summarize them
+    summary_tbl <- summary_tbl %>% add_column(GOES17_HotspotCount = as.integer(NA),
                                               GOES17_SumFRP = as.numeric(NA))
 
     for(i in 1:nrow(summary_tbl)){
-      int_frp <- GOES_table %>% filter(pull(GOES_table[2]) %within% interval(start = summary_tbl$Interval_Start[i], end = summary_tbl$Interval_End[i]-1))
-
-      summary_tbl$GOES16_SumFRP[i] <- int_frp$GOES16_SumFRP %>% sum(na.rm = TRUE)
-      summary_tbl$GOES17_SumFRP[i] <- int_frp$GOES17_SumFRP %>% sum(na.rm = TRUE)
+      int_hotspots <- GOES17_hotspots %>%
+        filter(lubridate::as_datetime(epoch) %within% summary_tbl$Interval[i]&
+                 !Mask %in% c(15,35)) # filter out maskvals 15 and 35 (low confidence fire))
+      summary_tbl$GOES17_HotspotCount[i] <- nrow(int_hotspots)
+      summary_tbl$GOES17_SumFRP[i] <- int_hotspots$Power %>% sum(na.rm = TRUE)
+      rm(int_hotspots)
     }
   }
 
@@ -165,10 +194,21 @@ summarize_daily_fire_vars <- function(interim_stack,
         brick_extract <- raster::extract(brick_lyr, interim_points)
 
         if(is.null(brick_extract)){
-          summary_tbl[[FWI_vars[i]]][j] <- NA
-        } else {
-          summary_tbl[[FWI_vars[i]]][j] <- stats::median(brick_extract, na.rm = T) # assign value to summary tibble
+          # if there are no areas estimated to have burned in the interval,
+          # then use the closest interim rast in the brick that isnt empty.
+
+          # find which layer is the closest that ISNT empty
+          int_stack_status <- cellStats(interim_stack, max) # 0 = empty, 1 = not empty
+          nonempty_indices <- which(int_stack_status == 1) # indices of interim stack layers that are not empty.
+          current_index <- which(getZ(interim_stack) == getZ(interim_rast)) # index of current interim rast being used
+
+          new_index <- nonempty_indices[which.min(abs(nonempty_indices-current_index))]
+
+          new_interim_rast <- interim_stack[[new_index]]
+          interim_points <- rasterToPoints(new_interim_rast, fun=function(x){x==1}, spatial = TRUE) # points
+          brick_extract <- raster::extract(brick_lyr, interim_points)
         }
+        summary_tbl[[FWI_vars[i]]][j] <- stats::median(brick_extract, na.rm = T) # assign value to summary tibble
 
       }
     }
@@ -200,7 +240,7 @@ summarize_daily_fire_vars <- function(interim_stack,
         # get human readable fuel type
         # this lookup table applies ONLY to the 2014 FBP fuels grid (diff numbers in 2019 grid)
         fbpfuel_lookup <- tibble(Value = c(101,102,103,104,105,106,107,108,108,109,110,111,112,113,114,115,116,117, 118,119,120,121,122),
-               FBP_fuel = c("C-1", "C-2" ,"C-3", "C-4" ,"C-5" ,"C-6" ,"C-7" ,"D-1", "D-2" ,"M-1","M-2", "M-3", "M-4" ,"S-1", "S-2", "S-3", "O-1a", "O-1b","Water","Non-fuel","Wetland","Urban","Vegetated non-fuel"))
+                                 FBP_fuel = c("C-1", "C-2" ,"C-3", "C-4" ,"C-5" ,"C-6" ,"C-7" ,"D-1", "D-2" ,"M-1","M-2", "M-3", "M-4" ,"S-1", "S-2", "S-3", "O-1a", "O-1b","Water","Non-fuel","Wetland","Urban","Vegetated non-fuel"))
 
         if(is.null(fbp_fuel_mode)){
           summary_tbl$FBP_fuels_2014[i] <- NA
@@ -391,6 +431,9 @@ summarize_daily_fire_vars <- function(interim_stack,
     }
   }
 
+  # change interval to a character, so that the proper tz abbr can be appended
+  summary_tbl$Interval <- paste0(summary_tbl$Interval_Start, ' ',timezone_abbr, '--',summary_tbl$Interval_Start,' ', timezone_abbr)
+
   if(!is.null(output_directory)){
     if(!is.null(filename_prefix)){
       filename <- file.path(output_directory,paste0(filename_prefix, '_Summary_table_24hr.csv'))
@@ -399,11 +442,12 @@ summarize_daily_fire_vars <- function(interim_stack,
     }
 
     utils::write.csv(summary_tbl, file = filename, row.names = F)
-    message(paste('24hr Summary table saved to',output_directory))
+    message(paste('24hr Summary table saved locally as',filename))
   }
 
   return(summary_tbl)
 }
+
 
 # ----------------------------------------------------
 
@@ -415,7 +459,8 @@ summarize_daily_fire_vars <- function(interim_stack,
 #' @param NBAC sf polygon of the final NBAC fire perimeter. Likely the output of calling \code{simplify_NBAC()}.
 #' @param VIIRS_hotspots sf points of VIIRS hotspots. The output of calling \code{VIIRS_hotspots_grab()}.
 #' @param MODIS_hotspots sf points of MODIS hotspots. The output of calling \code{MODIS_hotspots_grab()}.
-#' @param GOES_table GOES FRP table. The output of calling \code{GOES_FRP_table(interval = 'Hourly')}.
+#' @param GOES16_hotspots sf points of GOES-16 hotspots. The output of calling \code{GOES_GEE_grab(satellite = 16)}.
+#' @param GOES17_hotspots sf points of GOES-17 hotspots. The output of calling \code{GOES_GEE_grab(satellite = 17)}.
 #' @param ERA5land_weather_list List of ERA5 Land hourly RasterBricks. The output of calling \code{ERA5Land_GEE_grab()}.
 #' @param output_directory Optional. Output directory where a CSV should be saved.
 #' @param filename_prefix Optional. String that will be appended to the start of the exported CSV. Ignored if \code{output_directory = NULL}.
@@ -441,7 +486,8 @@ summarize_hourly_fire_vars <- function(interim_stack,
                                        NBAC = NULL,
                                        VIIRS_hotspots = NULL,
                                        MODIS_hotspots = NULL,
-                                       GOES_table = NULL,
+                                       GOES16_hotspots = NULL,
+                                       GOES17_hotspots = NULL,
                                        ERA5land_weather_list = NULL,
                                        output_directory = NULL,
                                        filename_prefix = NULL){
@@ -449,10 +495,14 @@ summarize_hourly_fire_vars <- function(interim_stack,
   # start creating the table based off the interim stack epochs
   # get timezone based on raster location
   rast_centroid <- interim_stack %>% st_bbox() %>% st_as_sfc() %>% st_centroid()
-  timezone <- tz_lookup(rast_centroid, method = 'accurate')
 
-  full_interval <- interval(start = (getZ(interim_stack) %>% as_datetime() %>% with_tz(tzone = timezone) %>% min()),
-                            end = getZ(interim_stack) %>% as_datetime() %>% with_tz(tzone = timezone) %>% max())
+  timezone_info <- suppressMessages(get_canada_timezones(rast_centroid)) %>% st_drop_geometry()
+  timezone <- timezone_info$LST_tzid
+  timezone_abbr <- timezone_info$LST_abbr
+
+
+  full_interval <- lubridate::interval(start = (getZ(interim_stack) %>% as.vector() %>% as_datetime() %>% with_tz(tzone = timezone) %>% min()),
+                                       end = getZ(interim_stack) %>% as.vector() %>% as_datetime() %>% with_tz(tzone = timezone) %>% max())
   summary_ints <- split_1hr(full_interval)
 
   # create the summary table
@@ -461,10 +511,17 @@ summarize_hourly_fire_vars <- function(interim_stack,
                         Interval_End = int_end(summary_ints))
 
   # add in nbac fire info if available
-  # hm not decided about this one yet. is it useful?
   if(!is.null(NBAC)){
     nbac_varnames <- c("CFS_REF", "NAME", "YEAR", "NFIREID", "AGENCY", "SDATE", "EDATE", "NBAC_HA")
     nbac_vars <- NBAC %>% dplyr::select(any_of(nbac_varnames)) %>% st_drop_geometry()
+
+    # if NBAC is a multipart polygon, check to see if there are differing outputs for
+    # any attributes. tends to be common for 'Agency'
+    if(nrow(NBAC) > 1){
+      unique_val_length <- apply(nbac_vars, 2, function(x) length(unique(x)))
+      not_identical <- which(unique_val_length > 1)
+      nbac_vars <- nbac_vars[,-not_identical][1,]
+    }
 
     summary_tbl <- summary_tbl %>% mutate(nbac_vars, .after = Interval_End)
   }
@@ -495,64 +552,137 @@ summarize_hourly_fire_vars <- function(interim_stack,
     }
   }
 
-  if(!is.null(GOES_table)){
-    # if GOES FRP table is given, summarize it
-    summary_tbl <- summary_tbl %>% add_column(GOES16_SumFRP = as.numeric(NA),
-                                              GOES17_SumFRP = as.numeric(NA))
+  if(!is.null(GOES16_hotspots)){
+    # if GOES 16 hotspots are given, summarize them
+    summary_tbl <- summary_tbl %>% add_column(GOES16_HotspotCount = as.integer(NA),
+                                              GOES16_SumFRP = as.numeric(NA))
 
     for(i in 1:nrow(summary_tbl)){
-      int_frp <- GOES_table %>% filter(pull(GOES_table[2]) %within% interval(start = summary_tbl$Interval_Start[i], end = summary_tbl$Interval_End[i]-1))
-
-      summary_tbl$GOES16_SumFRP[i] <- int_frp$GOES16_SumFRP %>% sum(na.rm = TRUE)
-      summary_tbl$GOES17_SumFRP[i] <- int_frp$GOES17_SumFRP %>% sum(na.rm = TRUE)
+      int_hotspots <- GOES16_hotspots %>%
+        filter(lubridate::as_datetime(epoch) %within% summary_tbl$Interval[i] &
+                 !Mask %in% c(15,35)) # filter out maskvals 15 and 35 (low confidence fire)
+      summary_tbl$GOES16_HotspotCount[i] <- nrow(int_hotspots)
+      summary_tbl$GOES16_SumFRP[i] <- int_hotspots$Power %>% sum(na.rm = TRUE)
+      rm(int_hotspots)
     }
   }
 
+  if(!is.null(GOES17_hotspots)){
+    # if GOES 17 hotspots are given, summarize them
+    summary_tbl <- summary_tbl %>% add_column(GOES17_HotspotCount = as.integer(NA),
+                                              GOES17_SumFRP = as.numeric(NA))
+
+    for(i in 1:nrow(summary_tbl)){
+      int_hotspots <- GOES17_hotspots %>%
+        filter(lubridate::as_datetime(epoch) %within% summary_tbl$Interval[i]&
+                 !Mask %in% c(15,35)) # filter out maskvals 15 and 35 (low confidence fire))
+      summary_tbl$GOES17_HotspotCount[i] <- nrow(int_hotspots)
+      summary_tbl$GOES17_SumFRP[i] <- int_hotspots$Power %>% sum(na.rm = TRUE)
+      rm(int_hotspots)
+    }
+  }
+
+
   if(!is.null(ERA5land_weather_list)){ # if ERA5land weather list is given, summarize it
-    # get names of items in the weather list
-    ERA5vars <- names(ERA5land_weather_list)
 
-    # create a new column for each item in the stack
-    summary_tbl[ERA5vars] <- as.numeric(NA)
+    # new thing: allowed to input a table of weather metrics instead, the output of ERA5Land_table_GEE_grab()
 
-    # now summarize each layer based on the interim raster
-    # this will be the median weather value of cells that intersect with areas burned on the same day
-    # weather values correspond with the start interval time
-    # currently this is a nested loop.
-    # WIP idea to make this more efficient: maybe polygonize and create mask for all days first
-    for(i in seq_along(ERA5land_weather_list)){
-      var_brick <- ERA5land_weather_list[[i]]
+    if(grepl('tbl',class(ERA5land_weather_list)[1])){
 
-      for(j in 1:nrow(summary_tbl)){
-        # get the corresponding layer based on time
-        dttm <- summary_tbl$Interval_Start[j] %>% as.numeric()
-        brick_lyr <- var_brick[[which(var_brick@z %>% unlist() %>% as.vector() == dttm)]]
+      # make a local dttm column
+      ERA5land_weather_list <- ERA5land_weather_list %>%
+        mutate(local_dttm = epoch %>% as_datetime() %>% with_tz(tzone = timezone),.before = 1) %>%
+        dplyr::select(-c(epoch, UTC_dttm))
 
-        # get correct interim rast
-        # first create an interval for each item in the interim stack
-        interim_dttm <- getZ(interim_stack) %>% as_datetime() %>% with_tz(tzone = timezone)
-        interim_ints <- lubridate::interval(start = (interim_dttm-86400+1), end = interim_dttm)
+      # left join?
+      summary_tbl <- left_join(summary_tbl, ERA5land_weather_list, by = c('Interval_Start' = 'local_dttm'))
 
-        # evaluate which interim rast interval the brick_lyr dttm falls into
-        interim_rast <- interim_stack[[which(as_datetime(getZ(brick_lyr), tz = timezone) %within% interim_ints)]]
+      # calculate 24 hr precip
+      n <- 24 # denotes to use 24 rows
+      summary_tbl$total_precipitation_24hr <- c(rep_len(NA, n - 1), base::rowSums(embed(summary_tbl$total_precipitation_hourly,n)))
 
-        # get median of cells that intersect with burning areas
-        # this uses the center of raster cells of the interim rast only (to determine intersection)
-        interim_points <- rasterToPoints(interim_rast, fun=function(x){x==1}, spatial = TRUE) # points
-        brick_extract <- raster::extract(brick_lyr, interim_points)
 
-        if(is.null(brick_extract)){
-          summary_tbl[[ERA5vars[i]]][j] <- NA
-        } else {
+    }
+
+    if(grepl('list',class(ERA5land_weather_list)[1])){ # else, i.e., ERA5land_weather_list is a list
+
+      # get names of items in the weather list
+      ERA5vars <- names(ERA5land_weather_list)
+
+      # create a new column for each item in the stack
+      summary_tbl[ERA5vars] <- as.numeric(NA)
+
+      # check if CRS matches for interim stack and ERA5Land metrics. if no, reproject
+      if(as.character(crs(ERA5land_weather_list[[1]])) != as.character(crs(interim_stack))){
+        # reprojecting drops z vals, so keep them here
+        ERA5_z <- ERA5land_weather_list[[1]] %>% getZ()
+        ERA5land_weather_list <- lapply(ERA5land_weather_list, projectRaster, crs = interim_stack)
+        ERA5land_weather_list <- lapply(ERA5land_weather_list, setZ, ERA5_z)
+      }
+
+      # now summarize each layer based on the interim raster
+      # this will be the median weather value of cells that intersect with areas burned on the same day
+      # weather values correspond with the start interval time
+      # currently this is a nested loop.
+      # WIP idea to make this more efficient: maybe polygonize and create mask for all days first
+
+      for(i in seq_along(ERA5land_weather_list)){
+        var_brick <- ERA5land_weather_list[[i]]
+
+        for(j in 1:nrow(summary_tbl)){
+          # get the corresponding layer based on time
+          dttm <- summary_tbl$Interval_Start[j] %>% as.numeric()
+          brick_lyr <- var_brick[[which(var_brick@z %>% unlist() %>% as.vector() == dttm)]]
+
+          # get correct interim rast
+          # first create an interval for each item in the interim stack
+          interim_dttm <- getZ(interim_stack) %>% as.vector() %>% as_datetime() %>% with_tz(tzone = timezone)
+          interim_ints <- lubridate::interval(start = (interim_dttm-86400+1), end = interim_dttm)
+
+          # evaluate which interim rast interval the brick_lyr dttm falls into
+          interim_rast <- interim_stack[[which(as_datetime(getZ(brick_lyr), tz = timezone) %within% interim_ints)]]
+
+          # get median of cells that intersect with burning areas
+          # this uses the center of raster cells of the interim rast only (to determine intersection)
+          interim_points <- rasterToPoints(interim_rast, fun=function(x){x==1}, spatial = TRUE) # points
+          brick_extract <- raster::extract(brick_lyr, interim_points)
+
+          if(is.null(brick_extract)){
+            # if there are no areas estimated to have burned in the interval,
+            # then use the closest interim rast in the brick that isnt empty.
+
+            # find which layer is the closest that ISNT empty
+            int_stack_status <- cellStats(interim_stack, max) # 0 = empty, 1 = not empty
+            nonempty_indices <- which(int_stack_status == 1) # indices of interim stack layers that are not empty.
+            current_index <- which(getZ(interim_stack) == getZ(interim_rast)) # index of current interim rast being used
+
+            new_index <- nonempty_indices[which.min(abs(nonempty_indices-current_index))]
+
+            new_interim_rast <- interim_stack[[new_index]]
+            interim_points <- rasterToPoints(new_interim_rast, fun=function(x){x==1}, spatial = TRUE) # points
+            brick_extract <- raster::extract(brick_lyr, interim_points)
+
+          }
           summary_tbl[[ERA5vars[i]]][j] <- stats::median(brick_extract, na.rm = TRUE) # assign value to summary tibble
         }
+      }
 
+      # if hourly precip is in the table, create a col for 24 hr precip.
+      if('total_precipitation_hourly' %in% ERA5vars){
+        summary_tbl <- summary_tbl %>% add_column(total_precipitation_24hr = as.numeric(NA))
+
+        # now just add the 24 hr prior to each row, starting at interval 24.
+        n <- 24 # denotes to use 24 rows
+        summary_tbl$total_precipitation_24hr <- c(rep_len(NA, n - 1), base::rowSums(embed(summary_tbl$total_precipitation_hourly,n)))
       }
 
     }
 
-
   }
+
+  # change interval to a character, so that the proper tz abbr can be appended
+  summary_tbl$Interval <- paste0(summary_tbl$Interval_Start, ' ',timezone_abbr, '--',summary_tbl$Interval_Start,' ', timezone_abbr)
+
   # if output directory provided, export table
   if(!is.null(output_directory)){
     if(!is.null(filename_prefix)){
@@ -566,3 +696,4 @@ summarize_hourly_fire_vars <- function(interim_stack,
   }
   return(summary_tbl)
 }
+

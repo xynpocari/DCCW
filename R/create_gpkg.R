@@ -130,8 +130,9 @@ create_gpkg <- function(vector_list = NULL,
   if(is.null(vector_list) & !is.null(raster_layers)){
     for(item in 1:nlayers(raster_layers)){
       if(item == 1){
+        options <- paste0('RASTER_TABLE=',names(raster_layers[[item]]))
         raster_layers[[item]] %>% st_as_stars() %>%
-          write_stars(dsn = outname, driver = 'GPKG')
+          write_stars(dsn = outname, driver = 'GPKG', options = options)
       } else {
         var_lyr <- raster_layers[[item]]
         options <- c(paste0('RASTER_TABLE=',names(raster_layers[[item]])),"APPEND_SUBDATASET=YES")
@@ -142,6 +143,7 @@ create_gpkg <- function(vector_list = NULL,
     }
   }
 
+  # add in tables if present
   if(!is.null(table_list)){
     # write out tables
     for(item in 1:length(table_list)){

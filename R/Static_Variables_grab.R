@@ -790,7 +790,7 @@ foliage_biomass_grab <- function(reference_grid,
 
 # ------------------------------------------------
 
-#' Landcover grab
+#' Grab Canada 2015 Land Cover
 #'
 #' Extract a spatial subset of the 2015 Land Cover of Canada to a user-defined reference grid.
 #'

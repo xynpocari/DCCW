@@ -102,7 +102,10 @@ IDW_interpolate_hotspots <- function(hotspots,
 
   # determine the local timezone based on fire centroid
   fire_centroid <- fire_perimeter %>% st_geometry() %>% st_centroid()
-  timezone <- tz_lookup(fire_centroid, method = "accurate")
+
+  timezone_info <- suppressMessages(get_canada_timezones(fire_centroid)) %>% st_drop_geometry()
+  timezone <- timezone_info$LST_tzid
+  timezone_abbr <- timezone_info$LST_abbr
 
   # convert hotspot UTC datetimes to epoch
   hotspots$UTC_dttm <- hotspots$UTC_dttm %>% ymd_hm()
@@ -121,13 +124,13 @@ IDW_interpolate_hotspots <- function(hotspots,
 
   # add in local dttm information to hotspots
   Local_dttm <- as_datetime(hotspots$UTC_dttm, tz = timezone)
-  Local_dttm_name <- paste0(base::format(Local_dttm[1], format = '%Z'),'_dttm')
+  Local_dttm_name <- paste0(timezone_abbr,'_dttm')
   hotspots <- hotspots %>% add_column(!!Local_dttm_name := Local_dttm,
                                       .after = "UTC_dttm")
 
   # get first and last local dttm for hotspots
   start_int <- hotspots %>% st_drop_geometry() %>% pull(!!Local_dttm_name) %>% min()
-  end_int <- hotspots %>% st_drop_geometry() %>% pull(!!Local_dttm_name) %>% max()
+  end_int <- hotspots %>% st_drop_geometry() %>% pull(!!Local_dttm_name) %>% max() + 86400
 
   # get the previous 9am time and following 9am time. then parse 24hr intervals
   if(interval == 'Daily'){
@@ -145,8 +148,8 @@ IDW_interpolate_hotspots <- function(hotspots,
     #   hour(end_int) <- 9
     #   end_int <- end_int + 86400
     # } else {
-      end_int <- round_date(end_int, unit = 'hour')
-      hour(end_int) <- 9
+    end_int <- round_date(end_int, unit = 'hour')
+    hour(end_int) <- 9
     # }
     # parse intervals
     fire_int <- lubridate::interval(start = start_int, end = end_int)
@@ -192,12 +195,13 @@ IDW_interpolate_hotspots <- function(hotspots,
   mask[mask == 0] <- NA
   IDW_stack <- mask(IDW_stack, mask = mask, updatevalue = 0)
 
-  # drop clumps of less than 16 cells (16 cells is 100 ha)
+  # drop clumps of less than 2 cells
+  # havent decided if this should be implemented or not.
   for(i in 1:nlayers(IDW_stack)){
     rast_tmp <- IDW_stack[[i]]
     rast_tmp <- clump(rast_tmp, directions = 8)
     f <- freq(rast_tmp) %>% as.data.frame()
-    excludeID <- f$value[which(f$count < 16)]
+    excludeID <- f$value[which(f$count < 2)] # <- change this number here to adjust clump tolerance
 
     rast_tmp[rast_tmp %in% excludeID] <- NA
     rast_tmp[!is.na(rast_tmp)] <- 1
@@ -214,22 +218,7 @@ IDW_interpolate_hotspots <- function(hotspots,
   # set layer names
   names(IDW_stack) <- as_datetime(rcl[,3], tz = timezone)
 
-  if(cumulative == TRUE){
-    # remove any empty layers
-    empty_lyrs <- vector(length = nlayers(IDW_stack))
-
-    for(i in 1:nlayers(IDW_stack)){
-      uniquelength <- values(IDW_stack[[i]]) %>% unique() %>% length()
-      empty_lyrs[[i]] <- ifelse(uniquelength ==1, TRUE, FALSE) # evaluate if layer is empty
-    }
-    if(empty_lyrs[1] == TRUE){IDW_stack <- IDW_stack[[-1]]}
-
-    # if(length((unique(empty_lyrs)))>1){
-    #   IDW_stack <- IDW_stack[[-which(empty_lyrs==TRUE)]] # remove empty layers from stack
-    # }
-
-
-  } else{ # subtract each raster using the previous raster
+  if(cumulative == FALSE){ # subtract each raster using the previous raster
     IDW_stack_noncumulative <- IDW_stack
     for(i in 1:nlayers(IDW_stack)){
       if(i == 1){
@@ -242,20 +231,6 @@ IDW_interpolate_hotspots <- function(hotspots,
     }
     names(IDW_stack_noncumulative) <- as_datetime(rcl[,3], tz = timezone)
     IDW_stack <- IDW_stack_noncumulative
-
-    # remove the first layer if it is empty
-    empty_lyrs <- vector(length = nlayers(IDW_stack))
-
-    for(i in 1:nlayers(IDW_stack)){
-      uniquelength <- values(IDW_stack[[i]]) %>% unique() %>% length()
-      empty_lyrs[[i]] <- ifelse(uniquelength ==1, TRUE, FALSE) # evaluate if layer is empty
-    }
-
-    if(empty_lyrs[1] == TRUE){IDW_stack <- IDW_stack[[-1]]}
-
-    # if(length((unique(empty_lyrs)))>1){
-    #   IDW_stack <- IDW_stack[[-which(empty_lyrs==TRUE)]] # remove empty layers from stack
-    # }
   }
 
   if(format == 'Raster'){
@@ -282,8 +257,14 @@ IDW_interpolate_hotspots <- function(hotspots,
     }
 
     return(IDW_stack)
-    }
+  }
   if(format == 'Polygon'){
+
+    # remove raster layers that are empty.
+    # if max layer value = 0, the layer is empty.
+    empty_lyrs <- which(cellStats(IDW_stack, max) == 0)
+    IDW_stack <- raster::dropLayer(IDW_stack, empty_lyrs)
+
     # polygonize the raster layers created, to keep everything consistent.
     IDW_poly <- vector(mode = 'list', length = nlayers(IDW_stack))
     for(i in 1:nlayers(IDW_stack)){
@@ -291,7 +272,7 @@ IDW_interpolate_hotspots <- function(hotspots,
       lyr_tmp[lyr_tmp == 0] <- NA
       poly <- as(lyr_tmp, 'SpatialPolygonsDataFrame') %>% st_as_sf() %>%
         group_by(1) %>% summarise() %>% add_column(Epoch = getZ(lyr_tmp), .before = 1) %>%
-        select(-2)
+        dplyr::select(-2)
       IDW_poly[[i]] <- poly
     }
 

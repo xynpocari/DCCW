@@ -196,7 +196,7 @@ ERA5Land_GEE_grab <- function(variable = NULL,
     extent <- st_transform(extent, crs = 3978) %>% # buffer can only be applied on PCS, not GCS
       st_buffer(dist = buff_width) %>% st_transform(crs = 4326) %>% st_bbox() %>% st_as_sfc()
 
-    }
+  }
 
   reference_ee <- sf_as_ee(extent) # convert extent to ee object
 
@@ -229,8 +229,8 @@ ERA5Land_GEE_grab <- function(variable = NULL,
                                   region = reference_ee,
                                   via = 'drive',
                                   dsn = tmpfile_vec[i]))
-    # pause for 1.5 seconds between calls
-    Sys.sleep(1.5)
+    # pause for 2 seconds between calls
+    Sys.sleep(2)
   }
 
   # read in ERA5Land rasterbricks
@@ -262,6 +262,20 @@ ERA5Land_GEE_grab <- function(variable = NULL,
     ssrd_hourly_tmp <- ERA5Land_List$surface_solar_radiation_downwards_hourly
     ssrd_hourly_tmp[ssrd_hourly_tmp <0] <- 0
     ERA5Land_List$surface_solar_radiation_downwards_hourly <- ssrd_hourly_tmp
+  }
+
+  # if both u and v components of wind are present, calculate windspeed raster
+  if('u_component_of_wind_10m' %in% names(ERA5Land_List) & 'v_component_of_wind_10m' %in% names(ERA5Land_List)){
+    message('Both u component of wind 10m and v component of wind 10m detected. Automatically generating a windspeed RasterBrick from these inputs.')
+
+    u_sqrd <- ERA5Land_List$u_component_of_wind_10m^2
+    v_sqrd <- ERA5Land_List$v_component_of_wind_10m^2
+
+    windspeed <- sqrt(u_sqrd + v_sqrd)
+    windspeed <- windspeed*3.6 # convert to km/h
+
+    names(windspeed) <- names(ERA5Land_List$v_component_of_wind_10m)
+    ERA5Land_List$windspeed_10m <- windspeed
   }
 
   # if match_crs is TRUE, match the extent objects crs
@@ -308,6 +322,8 @@ ERA5Land_GEE_grab <- function(variable = NULL,
       varname <- names(ERA5Land_List[i])
       if(varname == 'relative_humidity_2m'){
         varunit <- '%'
+      } else if(varname == 'windspeed_10m') {
+        varunit <- 'km/h'
       } else {
         varunit <- varlist %>% filter(BandName == varname) %>% pull(Units)
       }

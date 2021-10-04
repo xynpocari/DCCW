@@ -63,6 +63,29 @@ GOES_FRP_table_grab <- function(reference_poly,
                           end_date,
                           interval = 'Hourly'){
 
+  # define dates of interest
+  # this script will work pretty quickly for ~ 4-5 months of data
+  # recall GEE uses UTC, so extracted data wont exactly match the local dates you choose below
+  # suggested: use a 1 day buffer to account for time zone discrepancies
+  start_date <- as.Date(start_date) %>% as.character() # ee$Date requires character input
+  end_date <- as.Date(end_date) %>% as.character()
+
+  # check to see if dates defined coincide with GOES data availability
+  if(as.Date(start_date) < as.Date('2017-05-24')){
+    stop('GOES 16 and GOES 17 data are not available for selected dates. GOES 16 and GOES 17 data are available from 2017-05-24 and 2018-08-27 onwards, respectively.')
+  }
+  if(as.Date(start_date) > as.Date('2017-05-24') & as.Date(start_date) > as.Date('2018-08-27')){
+    message('GOES 16 and GOES 17 data are available for selected dates.')
+    grab_17 <- TRUE
+  }
+  if(as.Date(start_date) > as.Date('2017-05-24') & as.Date(start_date) < as.Date('2018-08-27')){
+    message('Only GOES 16 data are available for selected dates and will be returned. GOES 17 data are only available from 2018-08-27 onwards.')
+    grab_17 <- FALSE
+  }
+
+  start_date <- ee$Date(start_date) # example: '2019-05-17'
+  end_date <- ee$Date(end_date)
+
   reference_poly <- st_as_sf(reference_poly)
 
   if(buff_width > 0){
@@ -72,6 +95,7 @@ GOES_FRP_table_grab <- function(reference_poly,
 
   # get local timezone of reference poly centroid
   timezone <- tz_lookup(suppressWarnings(st_centroid(reference_poly)), method = 'accurate')
+  timezone <- timezone[1]
 
   # transform to WGS 84
   reference_poly <- st_transform(reference_poly, crs = 4326) %>% st_geometry()
@@ -79,17 +103,7 @@ GOES_FRP_table_grab <- function(reference_poly,
   # convert buffer to ee object
   reference_ee <- sf_as_ee(reference_poly)
 
-  # define dates of interest
-  # this script will work pretty quickly for ~ 4-5 months of data
-  # recall GEE uses UTC, so extracted data wont exactly match the local dates you choose below
-  # suggested: use a 1 day buffer to account for time zone discrepancies
-
-  start_date <- as.Date(start_date) %>% as.character() # ee$Date requires character input
-  end_date <- as.Date(end_date) %>% as.character()
-
-  start_date <- ee$Date(start_date) # example: '2019-05-17'
-  end_date <- ee$Date(end_date)
-
+  # begin grabbing data from GEE
   message('Retrieving GOES 16 FRP data from Earth Engine')
 
   # extract GOES 16 data, collection name is:'NOAA/GOES/16/FDCF'
@@ -125,95 +139,85 @@ GOES_FRP_table_grab <- function(reference_poly,
   Local_dttm_name <- paste0(base::format(Local_dttm[1], format = '%Z'),'_dttm')
   FRP16_t[Local_dttm_name] <- Local_dttm
 
-  # summarize FRP to be hourly
-  FRP16_hourly <- FRP16_t %>%
-    group_by(date(pull(FRP16_t[Local_dttm_name])), hour(pull(FRP16_t[Local_dttm_name]))) %>%
-    summarise(SumFRP = sum(FRP)) %>% # summarize as a sum
-    rename(Date = 1, # rename cols appropriately
-           Hour = 2)
-
-  FRP16_hourly <- FRP16_hourly %>% # add datetime to table
-    add_column(UTC_dttm = paste(FRP16_hourly$Date,FRP16_hourly$Hour) %>% ymd_h() %>% force_tz(timezone)%>% with_tz('UTC'),
-               !!Local_dttm_name := paste(FRP16_hourly$Date,FRP16_hourly$Hour) %>% ymd_h() %>% force_tz(timezone),
-               .before = 1) %>%
-    ungroup() %>%
-    dplyr::select(-c(Date, Hour))
-
   ##############
-  message('Retrieving GOES 17 FRP data from Earth Engine')
-  # extract GOES 17 data, collection name is:'NOAA/GOES/17/FDCF'
-  # see https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_17_FDCF#description
-  goes17_data <- ee$ImageCollection('NOAA/GOES/17/FDCF')$filterDate(start_date, end_date)$filterBounds(reference_ee)
+  if(grab_17 == TRUE){ # only do this if GOES 17 is available for selected dates
+    message('Retrieving GOES 17 FRP data from Earth Engine')
+    # extract GOES 17 data, collection name is:'NOAA/GOES/17/FDCF'
+    # see https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_17_FDCF#description
+    goes17_data <- ee$ImageCollection('NOAA/GOES/17/FDCF')$filterDate(start_date, end_date)$filterBounds(reference_ee)
 
-  # select the band of interest
-  FRP17_data <- goes17_data$select('Power') # 'Power' is the band for FRP
+    # select the band of interest
+    FRP17_data <- goes17_data$select('Power') # 'Power' is the band for FRP
 
-  # extract FRP over the image collection
-  # first convert to bands
-  FRP17_data_tobands <- FRP17_data$toBands()
+    # extract FRP over the image collection
+    # first convert to bands
+    FRP17_data_tobands <- FRP17_data$toBands()
 
-  # the following returns a dictionary of values
-  FRP17_extract <- FRP17_data_tobands$reduceRegion( # reduce region is like raster::extract()
-    reducer = ee$Reducer$sum(), # use a sum to aggregate data
-    geometry = reference_ee, # the region to summarize by
-    scale = 2000 # resolution of GOES. this must be set to get accurate results.
-  )
+    # the following returns a dictionary of values
+    FRP17_extract <- FRP17_data_tobands$reduceRegion( # reduce region is like raster::extract()
+      reducer = ee$Reducer$sum(), # use a sum to aggregate data
+      geometry = reference_ee, # the region to summarize by
+      scale = 2000 # resolution of GOES. this must be set to get accurate results.
+    )
 
-  FRP17_vector <- FRP17_extract$toArray()$getInfo() %>% unlist() # coerce to a vector
-  FRP17_t <- tibble(FRP = FRP17_vector) # create a tibble of the sum FRP
+    FRP17_vector <- FRP17_extract$toArray()$getInfo() %>% unlist() # coerce to a vector
+    FRP17_t <- tibble(FRP = FRP17_vector) # create a tibble of the sum FRP
 
-  # extract the datetimes, which is listed as 'system:index'
-  datetimes17 <- FRP17_data$aggregate_array('system:index')
-  ee_datetime17 <- datetimes17$getInfo() # convert to a vector
+    # extract the datetimes, which is listed as 'system:index'
+    datetimes17 <- FRP17_data$aggregate_array('system:index')
+    ee_datetime17 <- datetimes17$getInfo() # convert to a vector
 
-  # append ee datetimes to FRP tibbles,
-  # and add in parsed dttm in UTC and MDT
-  FRP17_t$UTC_dttm <- ee_datetime17 %>% substring(1, 11) %>% # substring to the minute
-    parse_date_time(orders = '%Y%j%H%M') # parse as UTC ddtm
-  Local_dttm <-  FRP17_t$UTC_dttm %>% with_tz(tzone = timezone)
-  Local_dttm_name <- paste0(base::format(Local_dttm[1], format = '%Z'),'_dttm')
-  FRP17_t[Local_dttm_name] <- Local_dttm
+    # append ee datetimes to FRP tibbles,
+    # and add in parsed dttm in UTC and MDT
+    FRP17_t$UTC_dttm <- ee_datetime17 %>% substring(1, 11) %>% # substring to the minute
+      parse_date_time(orders = '%Y%j%H%M') # parse as UTC ddtm
+    Local_dttm <-  FRP17_t$UTC_dttm %>% with_tz(tzone = timezone)
+    Local_dttm_name <- paste0(base::format(Local_dttm[1], format = '%Z'),'_dttm')
+    FRP17_t[Local_dttm_name] <- Local_dttm
 
-  if(interval == '10min'){
+    # combine the FRP tibbles from GOES 16 and 17
     FRP_10_min <- full_join(FRP16_t, FRP17_t,  by = c('UTC_dttm',Local_dttm_name)) %>%
       rename(GOES16_SumFRP = FRP.x, GOES17_SumFRP = FRP.y)
     FRP_10_min <- FRP_10_min[,c(3,2,1,4)] # reorder columns
+  } else { # if grab_17 == FALSE
+    FRP_10_min <- FRP16_t[,c(3,2,1)] %>%
+      rename(GOES16_SumFRP = FRP)
+  }
 
-    message(paste0('Returning 10-minute table of GOES 16 and GOES 17 FRP data' ))
+  # now dealing with time aggregation
+  if(interval == '10min'){ # original form
+    message(paste0('Returning 10-minute table of GOES FRP data' ))
     return(FRP_10_min)
   }
 
   if(interval !='10min'){
     # summarize FRP to be hourly
-    FRP17_hourly <- FRP17_t %>%
-      group_by(date(pull(FRP17_t[Local_dttm_name])), hour(pull(FRP17_t[Local_dttm_name]))) %>%
-      summarise(SumFRP = sum(FRP)) %>% # summarize as a sum
+
+    FRP_hourly <- FRP_10_min %>%
+      group_by(date(pull(FRP_10_min[Local_dttm_name])), hour(pull(FRP_10_min[Local_dttm_name]))) %>%
+      summarise_if(is.numeric, sum) %>% # summarize numeric cols as a sum
       rename(Date = 1, # rename cols appropriately
              Hour = 2)
 
-    FRP17_hourly <- FRP17_hourly %>% # add datetime to table
-      add_column(UTC_dttm = paste(FRP17_hourly$Date,FRP17_hourly$Hour) %>% ymd_h() %>% force_tz(timezone)%>% with_tz('UTC'),
-                 !!Local_dttm_name := paste(FRP17_hourly$Date,FRP17_hourly$Hour) %>% ymd_h() %>% force_tz(timezone),
+    FRP_hourly <- FRP_hourly %>% # add datetime to table
+      add_column(UTC_dttm = paste(FRP_hourly$Date,FRP_hourly$Hour) %>% ymd_h() %>% force_tz(timezone)%>% with_tz('UTC'),
+                 !!Local_dttm_name := paste(FRP_hourly$Date,FRP_hourly$Hour) %>% ymd_h() %>% force_tz(timezone),
                  .before = 1) %>%
       ungroup() %>%
       dplyr::select(-c(Date, Hour))
 
-    # combine GOES 16 and 17 outputs
-    FRP_combined <- full_join(FRP16_hourly, FRP17_hourly, by = c('UTC_dttm',Local_dttm_name)) %>%
-      rename(GOES16_SumFRP = SumFRP.x, GOES17_SumFRP = SumFRP.y)
-
     # fill missing datetimes
-    FRP_combined <- FRP_combined %>%
-      complete(nesting(!!Local_dttm_name := seq.POSIXt(min(pull(FRP_combined[Local_dttm_name])), max(pull(FRP_combined[Local_dttm_name])), by = 3600),
+    FRP_hourly <- FRP_hourly %>%
+      complete(nesting(!!Local_dttm_name := seq.POSIXt(min(pull(FRP_hourly[Local_dttm_name])), max(pull(FRP_hourly[Local_dttm_name])), by = 3600),
                        UTC_dttm = seq.POSIXt(min(UTC_dttm), max(UTC_dttm), by = 3600)))
 
     if(interval == 'Hourly'){
-      message(paste0('Returning hourly table of GOES 16 and GOES 17 FRP data' ))
-      return(FRP_combined)
+      message(paste0('Returning hourly table of GOES FRP data'))
+      return(FRP_hourly)
     }
     if(interval == 'Daily'){
       # get the first and last 9am times covered in the data
-      times9am <- FRP_combined %>% pull(!!Local_dttm_name)
+      times9am <- FRP_hourly %>% pull(!!Local_dttm_name)
       start_int <- times9am[which(hour(times9am)==9)] %>% min()
       end_int <- times9am[which(hour(times9am)==9)] %>% max()
 
@@ -229,9 +233,17 @@ GOES_FRP_table_grab <- function(reference_poly,
                            GOES17_SumFRP = as.numeric(NA))
 
       for(i in 1:nrow(daily_goes)){
-        int_hotspots <- FRP_combined %>% filter(!!rlang::sym(Local_dttm_name) %within% daily_goes$Interval_Local[i])
+        int_hotspots <- FRP_hourly %>% filter(!!rlang::sym(Local_dttm_name) %within% daily_goes$Interval_Local[i])
         daily_goes$GOES16_SumFRP[i] <- int_hotspots$GOES16_SumFRP %>% sum(na.rm = TRUE)
-        daily_goes$GOES17_SumFRP[i] <- int_hotspots$GOES17_SumFRP %>% sum(na.rm = TRUE)
+
+        if(grab_17 == TRUE){
+          daily_goes$GOES17_SumFRP[i] <- int_hotspots$GOES17_SumFRP %>% sum(na.rm = TRUE)
+        }
+      }
+
+      # if there was no GOES 17, remove the column now
+      if(grab_17 == FALSE){
+        daily_goes <- daily_goes[,c(1:2)]
       }
 
       # change back the interval ends and add in UTC intervals
@@ -241,7 +253,7 @@ GOES_FRP_table_grab <- function(reference_poly,
         add_column(UTC_Interval = lubridate::interval(start = with_tz(int_start(daily_goes$Interval_Local), tzone = 'UTC'), end = with_tz(int_end(daily_goes$Interval_Local), tzone = 'UTC')), .before = 2) %>%
         rename(!!local_int_name := Interval_Local) # rename local int
 
-      message(paste0('Returning daily table of GOES 16 and GOES 17 FRP data' ))
+      message(paste0('Returning daily table of GOES FRP data' ))
       return(daily_goes)
     }
   }

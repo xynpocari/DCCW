@@ -3,6 +3,7 @@
 #' Extract GOES-16 or GOES-17 FDCF Series ABI Level 2 FRP rasters using Google Earth Engine from the R environment (via package rgee).
 #'
 #' @param satellite Specify 16 for GOES-16, or 17 for GOES-17.
+#' @param band Character. Band to grab. Choices are 'Area','Temp','Mask','Power', and 'DQF'.
 #' @param extent An sp, sf, or Raster* object used to define the extraction extent.
 #' @param buff_width Numeric. Width (in meters) to buffer the object defined in extent, thereby increasing the extraction extent. Defaults to 0.
 #' @param start_date Date object or character. Start date of data extraction, using UTC. E.g."2018-05-01".
@@ -25,7 +26,7 @@
 #' \url{https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_17_FDCF#description}
 #'
 #' @return A RasterBrick
-#' @export
+#'
 #'
 #' @references Google Earth Engine, GOES-16 FDCF: \url{https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_16_FDCF#description}
 #' @references Google Earth Engine, GOES-17 FDCF: \url{https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_17_FDCF#description}
@@ -72,6 +73,7 @@
 #'plot(GOES16_FRP_sum)
 #' }
 GOES_FRP_grab <- function(satellite,
+                          band,
                           extent,
                           buff_width = 0,
                           start_date,
@@ -79,6 +81,29 @@ GOES_FRP_grab <- function(satellite,
                           match_crs = FALSE,
                           output_directory = NULL,
                           filename_prefix = NULL){
+
+  # check whether satellite input is valid
+  satellite <- as.character(satellite)
+  if(!grepl('16|17', satellite)){ stop('satellite must either be "16" or "17".')}
+
+  # check whether band choice is valid
+  if(length(band)>1){ stop('Argument band must be of length 1 only.')}
+  if(!band %in% c('Area','Temp','Mask','Power','DQF')){
+    stop('Invalid band. Valid band choices include "Area","Temp","Mask","Power", and "DQF".')
+  }
+
+  # define dates of interest
+  # recall GEE uses UTC, so an extra day is added to the end to ensure you get the entire desired range.
+  start_date <- as.Date(start_date)
+  end_date <- (as.Date(end_date)+1)
+
+  # check if data is available for the requested dates
+  if(satellite == '16' & start_date < as.Date('2017-05-24')){
+    stop('GOES 16 FRP data are not available for the requested dates. GOES 16 data are available only from 2017-05-24 onwards.')
+  }
+  if(satellite == '17' & start_date < as.Date('2018-08-27')){
+    stop('GOES 17 FRP data are not available for the requested dates. GOES 17 data are available only from 2018-08-27 onwards.')
+  }
 
   if( grepl("sf", class(extent)[1]) ){ extent <- st_bbox(extent) %>% st_as_sfc()}
   if( grepl("Spatial", class(extent)[1]) ){ extent <- st_as_sf(extent) %>% st_bbox() %>% st_as_sfc() }
@@ -94,11 +119,6 @@ GOES_FRP_grab <- function(satellite,
 
   # convert buffer to ee object
   reference_ee <- sf_as_ee(reference_poly_wgs84)
-
-  # define dates of interest
-  # recall GEE uses UTC, so an extra day is added to the end to ensure you get the entire desired range.
-  start_date <- as.Date(start_date)
-  end_date <- (as.Date(end_date)+1)
 
   # make an ee to local request per month (to ensure gee is not overloaded, which will return an error)
   # parse intervals by month
@@ -122,8 +142,17 @@ GOES_FRP_grab <- function(satellite,
 
   for(i in 1:length(calls_ls)){
     call_int <- calls_ls[[i]]
+
+    # error will occur if start date = end date
+    #(this could happen if you want to return the last day of the month)
+    # if start date = end date, subtract one day from start date.
+    if(int_start(call_int) == int_end(call_int)){
+      int_start(call_int) <- int_start(call_int) - 86400
+    }
+
     ee_start_date <- ee$Date(int_start(call_int) %>% date() %>% as.character())
     ee_end_date <- ee$Date(int_end(call_int) %>% date() %>% as.character())
+
 
     if(satellite == 16){ # get GOES16
       # extract GOES 16 data, collection name is:'NOAA/GOES/16/FDCF'
@@ -131,7 +160,7 @@ GOES_FRP_grab <- function(satellite,
       goes16_data <- ee$ImageCollection('NOAA/GOES/16/FDCF')$filterDate(ee_start_date, ee_end_date)$filterBounds(reference_ee)
 
       # select the band of interest
-      FRP16_data <- goes16_data$select('Power') # 'Power' is the band for FRP
+      FRP16_data <- goes16_data$select(band) # user input
 
       # convert to bands
       FRP_data_tobands <- FRP16_data$toBands()
@@ -146,7 +175,7 @@ GOES_FRP_grab <- function(satellite,
       goes17_data <- ee$ImageCollection('NOAA/GOES/17/FDCF')$filterDate(ee_start_date, ee_end_date)$filterBounds(reference_ee)
 
       # select the band of interest
-      FRP17_data <- goes17_data$select('Power') # 'Power' is the band for FRP
+      FRP17_data <- goes17_data$select(band) # user input
 
       # convert to bands
       FRP_data_tobands <- FRP17_data$toBands()
@@ -190,7 +219,13 @@ GOES_FRP_grab <- function(satellite,
   if(match_crs == FALSE){
     message('Returning GOES ',satellite,' FRP RasterBrick')
   } else {
-    ee_GOES_new <- projectRaster(ee_GOES_new, crs = crs(extent), method = 'bilinear')
+    if(band %in% c('Mask','DQF')){
+      # use nearest neighbour interpolation if variable is mask or DQF
+      ee_GOES_new <- projectRaster(ee_GOES_new, crs = crs(extent), method = 'ngb')
+    } else if(band %in% c('Power','Area','Temp')){
+      # use bilinear interpolation if not
+      ee_GOES_new <- projectRaster(ee_GOES_new, crs = crs(extent), method = 'bilinear')
+    }
     message('Returning GOES ',satellite,' FRP RasterBrick')
   }
 

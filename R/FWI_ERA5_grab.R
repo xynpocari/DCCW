@@ -201,8 +201,8 @@ FWI_ERA5_grab <- function(variable = NULL,
     # project to extent crs if match_crs is TRUE
     if(match_crs == TRUE){
       # get upper and lower limits, for clamping later
-      lower <- raster::cellStats(rast_tmp, min) %>% min()
-      upper <- raster::cellStats(rast_tmp, max) %>% max()
+      lower <- raster::cellStats(rast_tmp, min) %>% min(na.rm = TRUE)
+      upper <- raster::cellStats(rast_tmp, max) %>% max(na.rm = TRUE)
 
       rast_tmp <- projectRaster(from = rast_tmp, crs = crs(extent))
 
