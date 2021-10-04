@@ -165,7 +165,7 @@ output_directory <- 'C:\\Users\\YOUR_NAME\\Documents'
 filename_prefix <- 'SWF0492019' # using CFS REF ID for clarity here
 
 ```
-### 2. Data extraction: fire detection vector data
+### 2. Data extraction: polar-orbiting fire detection data
 
 We'll start our data extraction by pulling VIIRS S-NPP hotspots using `VIIRS_hotspots_grab()`, and pulling MODIS Collection 6 hotspots using `MODIS_hotspots_grab()`. This function downloads archived hotspots from the [FIRMS](https://firms.modaps.eosdis.nasa.gov/download/) database. 
 
@@ -212,84 +212,85 @@ modis_map <- tm_shape(McMillan_simple) + tm_polygons() +
 tmap_arrange(viirs_map, modis_map)
 
 ```
-### 3. Data extraction: fire detection raster data
+### 3. Data extraction: geostationary fire detection data
 
-We will now pull [GOES-16](https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_16_FDCF#description) and [GOES-17](https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_17_FDCF#description) FRP rasters using Google Earth Engine. `GOES_FRP_grab()` will extract the FRP (fire radiative power) rasters to our defined spatial extent and temporal range, and return a RasterBrick.
+We will now pull [GOES-16](https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_16_FDCF#description) and [GOES-17](https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_17_FDCF#description) FRP rasters using Google Earth Engine. `GOES_GEE_grab()` will extract the GOES hotspots to our defined spatial extent and temporal range.
 
 One request to GEE is made for each unique month requested, in order to reduce large data transfers. 
 
 ``` r
-# If the output directory is defined, a NetCDF will be saved.
-GOES16_rast <- GOES_FRP_grab(satellite = 16, # either 16 for GOES16, or 17 for GOES17
-                             extent = McMillan_simple,
-                             buff_width = buff_width, # recall: 2 km
-                             start_date = startdate, # recall: "2019-05-17"
-                             end_date = enddate,# recall: "2019-06-22"
-                             match_crs = TRUE, # if FALSE, return RasterBrick in native crs
-                             output_directory = output_directory, # save the output somewhere!
-                             filename_prefix = filename_prefix)
+# grab GOES-16 hotspots first
+GOES16 <- GOES_GEE_grab(satellite = 16, # either 16 for GOES16, or 17 for GOES17
+                        maskvals = c(10:15,30:35), # vector of mask values to keep
+                        extent = McMillan_simple,
+                        buff_width = buff_width, # recall: 2 km
+                        start_date = start_date, # recall: "2019-05-17"
+                        end_date = end_date, # recall: "2019-06-22"
+                        return_sf = TRUE) # specifying TRUE returns an sf points object
 
-# View the RasterBrick object
-GOES16_rast # Dont let the NAs scare you! These are accurate.
+# View the sf points object
+GOES16 # all possible variables (Mask, Power, Area, DQF) are returned
 
-# Let's visualize a subset of the GOES 16 data
-FRP_subset <- GOES16_rast %>% raster::subset(c("X2019.05.26.21.20.MDT","X2019.05.26.21.30.MDT",
-                                               "X2019.05.26.21.40.MDT","X2019.05.26.21.50.MDT", 
-                                               "X2019.05.26.22.00.MDT", "X2019.05.26.22.10.MDT",
-                                               "X2019.05.26.22.20.MDT", "X2019.05.26.22.30.MDT",
-                                               "X2019.05.26.22.40.MDT"))
+# Let's visualize the GOES 16 data
+
+# All fire mask values
 tm_shape(McMillan_simple) + tm_borders() +
-  tm_shape(FRP_subset) + tm_raster(title = 'GOES 16 FRP') +
-  tm_facets(ncol = 3)
+  tm_shape(GOES16) + tm_dots(title = 'GOES 16 Hotspots')
+  
+# Just high conf fire mask values (10,11,30,31)  
+tm_shape(McMillan_simple) + tm_borders() +
+  tm_shape(GOES16 %>% dplyr::filter(Mask %in% c(10,11,30,31))) + 
+  tm_dots(title = 'GOES 16 Hotspots')
 
 ```
-Notice that GOES produces a new raster every 10 minutes,
-but the resolution at northern latitudes is very coarse.
+The hotspots above represent the centroid of GOES-16 pixels.
+If we want to see what the original pixel grid looks like, we can call `get_GOES_grid()`
 
 ``` r
-raster::res(GOES16_rast) # Pixels are ~ 3 km x 6 km
+# grab GOES-16 grid in polygon format
+GOES16_grid <- get_GOES_grid(satellite = '16',
+                             GOES_hotspots = GOES16, 
+                             return_full_tile = T, 
+                             match_crs = T) # if FALSE, returns grid in WGS84
+
+goes16_bbox <- st_buffer(McMillan_simple, dist = buff_width) %>% st_transform(crs = 4326) %>%
+  st_bbox() %>% st_as_sfc() %>% st_sf() %>% st_transform(crs = st_crs(GOES16_grid))
+
+GOES16_grid <- GOES16_grid[goes16_bbox,]
+
+# visualize
+tm_shape(GOES16_grid) + tm_polygons() +
+  tm_shape(McMillan_simple) + tm_borders() +
+  tm_shape(GOES16) + tm_dots()
 
 ```
 To save time, we won't pull the GOES-17 FRP rasters, but you would do it the same as above:
 ``` r
 # (uncomment if you want to try pulling GOES-17 FRP rasters)
 
-# GOES17_rast <- GOES_FRP_grab(satellite = 17, # either 16 for GOES16, or 17 for GOES17
-#                              extent = McMillan_simple,
-#                              buff_width = buff_width,
-#                              start_date = startdate,
-#                              end_date = enddate,
-#                              match_crs = TRUE,
-#                              output_directory = output_directory,
-#                              filename_prefix = filename_prefix)
+# # grab GOES-17 hotspots
+# GOES17 <- GOES_GEE_grab(satellite = 17, # either 16 for GOES16, or 17 for GOES17
+#                         maskvals = c(10:15,30:35), # vector of mask values to keep
+#                         extent = McMillan_simple,
+#                         buff_width = buff_width, # recall: 2 km
+#                         start_date = start_date, # recall: "2019-05-17"
+#                         end_date = end_date, # recall: "2019-06-22"
+#                         return_sf = TRUE) # specifying TRUE returns an sf points object
+# 
+# # View the sf points object
+# GOES17 # all possible variables (Mask, Power, Area, DQF) are returned
+# 
+# # All fire mask values
+# tm_shape(McMillan_simple) + tm_borders() +
+#   tm_shape(GOES17) + tm_dots(title = 'GOES 17 Hotspots')
+#   
+# # Just high conf fire mask values (10,11,30,31)  
+# tm_shape(McMillan_simple) + tm_borders() +
+#   tm_shape(GOES17 %>% dplyr::filter(Mask %in% c(10,11,30,31))) + 
+#   tm_dots(title = 'GOES 17 Hotspots')
 
 ```
 
-If we only want an aspatial table that summarizes [GOES-16](https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_16_FDCF#description) and [GOES-17](https://developers.google.com/earth-engine/datasets/catalog/NOAA_GOES_17_FDCF#description) FRP, we can run `GOES_FRP_table_grab()`.
-
-What's the benefit of using this function? Pulling the tabular summary is considerably quicker than pulling spatial data.
-This function provides the sum of GOES FRP within the user-defined polygon (and optional buffer).
-You can also choose what temporal scale to aggregate data over.
-
-``` r
-# Pull hourly GOES 16/17 aspatial FRP summary
-GOES_FRP_table <- GOES_FRP_table_grab(reference_poly = McMillan_simple,
-                                      start_date = startdate,
-                                      end_date = enddate,
-                                      interval = 'Hourly', # or 'Daily' or '10min'
-                                      buff_width = buff_width)
-
-GOES_FRP_table # Notice there are 864 rows. Now let's aggregate over a 10 minute scale.
-
-GOES_FRP_table_10min <- GOES_FRP_table_grab(reference_poly = McMillan_simple,
-                                            start_date = startdate,
-                                            end_date = enddate,
-                                            interval = '10min', # or 'Daily' or '10min'
-                                            buff_width = buff_width)
-
-GOES_FRP_table_10min # Now we have 5,188 rows due to higher temporal res.
-
-```
 ### 4. Data extraction: environmental rasters in the immediate vicinity
 
 We will now move onto extracting environmental rasters in the immediate vicinity (within a 2 km buffer) of the McMillan Complex Fire. Variables that might be relevant only in the immediate vicinity of a fire include topography (elevation, slope, and aspect), as well as ecozone or landcover data.
@@ -533,9 +534,9 @@ View(hourly_summary) # the intervals are hourly
 
 ```
 
-Finally, in the next section we will export our extracted data into a GeoPackage, and retrieve a metadata file to help us interpret our data. 
+Finally, in the next section we will export our extracted data into a GeoPackage.
 
-### 8. Export GeoPackage and get metadata
+### 8. Export GeoPackage
 
 The function `create_gpkg()` allows users to export a combination of vector, raster, and tabular data into a GeoPackage. GeoPackages are a great way to share data, and are easily opened in desktop GIS software, such as QGIS. Unfortunately, GeoPackages do not support multiband rasters, so our temporal RasterBricks have all been exported in previous steps as NetCDFs within our output folder.
 
@@ -572,16 +573,6 @@ gdalUtils::gdalinfo(gpkg_file) %>%
 ```
 All our expected outputs are now within the GeoPackage! 
 
-Finally, let's download the DCCW data package metadata by calling `get_DCCW_metadata()`.
-This function will download a readme.xlsx Excel sheet with helpful information and links to data sources,
-so that the data and summary tables can be interpreted appropriately.
-
-``` r
-# Download DCCW metadata to your output directory
-get_DCCW_metadata(output_directory = output_directory)
-
-```
-Remember to check out your output_directory to see everything we've exported throughout this demonstration.
 
 ### 9. Conclusion
 
