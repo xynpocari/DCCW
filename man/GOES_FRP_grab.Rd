@@ -6,6 +6,7 @@
 \usage{
 GOES_FRP_grab(
   satellite,
+  band,
   extent,
   buff_width = 0,
   start_date,
@@ -17,6 +18,8 @@ GOES_FRP_grab(
 }
 \arguments{
 \item{satellite}{Specify 16 for GOES-16, or 17 for GOES-17.}
+
+\item{band}{Character. Band to grab. Choices are 'Area','Temp','Mask','Power', and 'DQF'.}
 
 \item{extent}{An sp, sf, or Raster* object used to define the extraction extent.}
 

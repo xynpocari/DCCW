@@ -2,7 +2,7 @@
 % Please edit documentation in R/Static_Variables_grab.R
 \name{landcover2015_grab}
 \alias{landcover2015_grab}
-\title{Landcover grab}
+\title{Grab Canada 2015 Land Cover}
 \usage{
 landcover2015_grab(reference_grid, landcover_grid = NULL)
 }

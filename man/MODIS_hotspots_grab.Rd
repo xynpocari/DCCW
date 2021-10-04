@@ -6,25 +6,28 @@
 \usage{
 MODIS_hotspots_grab(
   reference_poly,
-  match_crs = TRUE,
+  buff_width = 0,
   start_date,
   end_date,
-  buff_width = 0
+  return_sf = TRUE,
+  match_crs = TRUE
 )
 }
 \arguments{
 \item{reference_poly}{An sp or sf polygon, defining the extent that hotspots are extracted for. The location of a polygon file is also accepted.}
 
-\item{match_crs}{Logical. Should the extracted hotspots be projected to the CRS of the \code{reference_poly}? Defaults to \code{TRUE}. If \code{FALSE}, the hotspots are returned in WGS 84.}
+\item{buff_width}{Numeric. Width (in meters) to buffer the object defined in \code{reference_poly}, thereby increasing the extraction extent. Defaults to 0.}
 
 \item{start_date}{Date object or character. Start date of data extraction, using UTC. E.g."2018-05-01".}
 
 \item{end_date}{Date object or character. End date of data extraction, using UTC. E.g."2018-05-07".}
 
-\item{buff_width}{Numeric. Width (in meters) to buffer the object defined in extent, thereby increasing the extraction extent. Defaults to 0.}
+\item{return_sf}{Logical. Should the points be returned as an sf object? If \code{FALSE}, returns a tibble with lat/lon information. Defaults to TRUE.}
+
+\item{match_crs}{Logical. Should the extracted points be projected to the CRS of the reference \code{extent} object? Only applicable if \code{return_sf = TRUE}. Defaults to \code{FALSE}. If \code{FALSE}, sf points are returned in WGS84.}
 }
 \value{
-sf points
+sf points or a tibble
 }
 \description{
 Import and/or download archived MODIS Collection 6 hotspots from the FIRMS database within a user-defined date range and spatial extent.
@@ -48,7 +51,11 @@ e <- extent(-1198869,-1131697,901665.8,1004528) \%>\%
      st_bbox() \%>\% st_as_sfc() \%>\% st_sf()
 st_crs(e) <- 3978 # assign CRS as EPSG 3978, Canada Atlas Lambert
 
-modis <- MODIS_hotspots_grab(reference_poly = e, start_date = '2019-05-20', end_date = '2019-06-10')
+modis <- MODIS_hotspots_grab(reference_poly = e,
+                             start_date = '2019-05-20',
+                             end_date = '2019-06-10',
+                             return_sf = TRUE,
+                             match_crs = TRUE)
 plot(modis[,'acq_date'])
 }
 }

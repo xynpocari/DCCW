@@ -9,7 +9,8 @@ summarize_daily_fire_vars(
   NBAC = NULL,
   VIIRS_hotspots = NULL,
   MODIS_hotspots = NULL,
-  GOES_table = NULL,
+  GOES16_hotspots = NULL,
+  GOES17_hotspots = NULL,
   FWI_list = NULL,
   variable_stack = NULL,
   output_directory = NULL,
@@ -25,7 +26,9 @@ summarize_daily_fire_vars(
 
 \item{MODIS_hotspots}{sf points of MODIS hotspots. The output of calling \code{MODIS_hotspots_grab()}.}
 
-\item{GOES_table}{GOES FRP table. The output of calling \code{GOES_FRP_table(interval = 'Hourly')}.}
+\item{GOES16_hotspots}{sf points of GOES-16 hotspots. The output of calling \code{GOES_GEE_grab(satellite = 16)}.}
+
+\item{GOES17_hotspots}{sf points of GOES-17 hotspots. The output of calling \code{GOES_GEE_grab(satellite = 17)}.}
 
 \item{FWI_list}{List of FWI RasterBricks. The output of calling \code{FWI_ERA5_grab()}.}
 
